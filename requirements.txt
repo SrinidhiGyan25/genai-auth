@@ -6,3 +6,4 @@ pandas
 lxml
 python-docx
 beautifulsoup4
+markdown
