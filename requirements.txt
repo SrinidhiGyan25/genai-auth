@@ -2,3 +2,5 @@ streamlit
 openai
 python-pptx
 pathlib2
+pandas
+lxml
