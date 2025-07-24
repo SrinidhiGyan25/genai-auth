@@ -218,7 +218,27 @@ def main():
         api_key = st.text_input("OpenAI API Key", type="password", help="Enter your OpenAI API key")
         
         st.header("📋 Training Details")
-        job_role = st.text_input("Job Role", placeholder="e.g., Electronics Engineer")
+        job_role_options = [
+            "Product Designer",
+            "Domain Expert and V&V Engineer",
+            "PCB Design Engineer",
+            "Electronic Product Integration Engineer",
+            "Procurement Specialist",
+            "Mechanical Designer for Electro/Electronic Product",
+            "Product Manager (Techno-Managerial)",
+            "Firmware / Software Developer",
+            "other"
+        ]
+        job_role_selected = st.selectbox(
+            "Job Role",
+            job_role_options,
+            index=0
+        )
+        if job_role_selected == "other":
+            job_role_custom = st.text_input("Please specify your job role", key="custom_job_role")
+            job_role = job_role_custom.strip() if job_role_custom.strip() else "other"
+        else:
+            job_role = job_role_selected
         expertise = st.text_area("Required Expertise", placeholder="e.g., circuit design and testing")
         core_skill = st.text_input("Core Skill", placeholder="e.g., PCB Design")
 
