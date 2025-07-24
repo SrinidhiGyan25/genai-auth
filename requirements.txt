@@ -4,3 +4,4 @@ python-pptx
 pathlib2
 pandas
 lxml
+python-docx
