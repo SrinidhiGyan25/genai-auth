@@ -5,3 +5,4 @@ pathlib2
 pandas
 lxml
 python-docx
+beautifulsoup4
