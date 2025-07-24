@@ -1372,5 +1372,5 @@ def merge_presentations(primary_path: Path, additional_paths: List[Path], output
     merged.save(final_path)
     return final_path
 
-if __name__ == "__main__":
-    main()
+# if __name__ == "__main__":
+#     main()
