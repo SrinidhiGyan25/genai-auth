@@ -1,3 +1,4 @@
+import logging
 import streamlit as st
 import re
 import time
@@ -9,7 +10,12 @@ from pptx import Presentation
 from pptx.enum.text import PP_ALIGN
 from pptx.util import Inches, Pt
 from pptx.enum.text import MSO_VERTICAL_ANCHOR
-
+from script import PowerPointGenerator, Config
+from bs4 import BeautifulSoup
+import markdown  
+import tempfile  
+from question_utils import generate_question_paper  
+import pandas as pd
 # ===== PROMPT TEMPLATE =====
 PROMPT_TEMPLATE = """
 Assume the role of an experienced {job_role} responsible for 
@@ -68,77 +74,77 @@ def parse_table(lines):
             table_data.append(row)
     return table_data
 
-def markdown_to_ppt(markdown):
-    """Convert markdown to PowerPoint presentation"""
-    prs = Presentation()
-    prs.slide_width = Inches(10)
-    prs.slide_height = Inches(7.5)
-    notes_out = []
+# def markdown_to_ppt(markdown):
+#     """Convert markdown to PowerPoint presentation"""
+#     prs = Presentation()
+#     prs.slide_width = Inches(10)
+#     prs.slide_height = Inches(7.5)
+#     notes_out = []
 
-    slide_chunks = re.findall(r"# Slide \d+: .*?(?=(?:# Slide \d+:|\Z))", markdown, re.DOTALL)
+#     slide_chunks = re.findall(r"# Slide \d+: .*?(?=(?:# Slide \d+:|\Z))", markdown, re.DOTALL)
 
-    for idx, chunk in enumerate(slide_chunks):
-        lines = chunk.strip().splitlines()
-        title_line = lines[0].strip()
-        title = title_line.split(":", 1)[-1].strip()
+#     for idx, chunk in enumerate(slide_chunks):
+#         lines = chunk.strip().splitlines()
+#         title_line = lines[0].strip()
+#         title = title_line.split(":", 1)[-1].strip()
 
-        bullet_lines, speaker_notes, table_lines = [], "", []
-        collecting_notes = False
+#         bullet_lines, speaker_notes, table_lines = [], "", []
+#         collecting_notes = False
 
-        for line in lines[1:]:
-            if line.strip().lower().startswith("speaker notes:"):
-                collecting_notes = True
-                speaker_notes = line.split(":", 1)[-1].strip()
-            elif collecting_notes:
-                speaker_notes += " " + line.strip()
-            elif re.match(r"^[-*•]\s+", line.strip()):
-                bullet_lines.append(re.sub(r"^[-*•]\s+", "", line.strip()))
-            elif line.strip().startswith("|"):
-                table_lines.append(line)
+#         for line in lines[1:]:
+#             if line.strip().lower().startswith("speaker notes:"):
+#                 collecting_notes = True
+#                 speaker_notes = line.split(":", 1)[-1].strip()
+#             elif collecting_notes:
+#                 speaker_notes += " " + line.strip()
+#             elif re.match(r"^[-*•]\s+", line.strip()):
+#                 bullet_lines.append(re.sub(r"^[-*•]\s+", "", line.strip()))
+#             elif line.strip().startswith("|"):
+#                 table_lines.append(line)
 
-        slide = prs.slides.add_slide(prs.slide_layouts[5])
-        title_box = slide.shapes.add_textbox(Inches(1), Inches(0.5), Inches(8), Inches(1))
-        tf = title_box.text_frame
-        tf.text = title
-        tf.paragraphs[0].font.size = Pt(28)
-        tf.paragraphs[0].font.bold = True
-        tf.paragraphs[0].alignment = PP_ALIGN.CENTER
+#         slide = prs.slides.add_slide(prs.slide_layouts[5])
+#         title_box = slide.shapes.add_textbox(Inches(1), Inches(0.5), Inches(8), Inches(1))
+#         tf = title_box.text_frame
+#         tf.text = title
+#         tf.paragraphs[0].font.size = Pt(28)
+#         tf.paragraphs[0].font.bold = True
+#         tf.paragraphs[0].alignment = PP_ALIGN.CENTER
 
-        if table_lines:
-            table_data = parse_table(table_lines)
-            if table_data and len(table_data[0]) <= 5 and len(table_data) <= 6:
-                table_shape = slide.shapes.add_table(len(table_data), len(table_data[0]), Inches(1), Inches(1.5), Inches(8), Inches(3)).table
-                for i, row in enumerate(table_data):
-                    for j, cell_text in enumerate(row):
-                        cell = table_shape.cell(i, j)
-                        cell.text = cell_text
-                        cell.text_frame.paragraphs[0].font.size = Pt(16)
+#         if table_lines:
+#             table_data = parse_table(table_lines)
+#             if table_data and len(table_data[0]) <= 5 and len(table_data) <= 6:
+#                 table_shape = slide.shapes.add_table(len(table_data), len(table_data[0]), Inches(1), Inches(1.5), Inches(8), Inches(3)).table
+#                 for i, row in enumerate(table_data):
+#                     for j, cell_text in enumerate(row):
+#                         cell = table_shape.cell(i, j)
+#                         cell.text = cell_text
+#                         cell.text_frame.paragraphs[0].font.size = Pt(16)
 
-        if bullet_lines:
-            bullet_box = slide.shapes.add_textbox(Inches(0.63), Inches(2.25), Inches(7.5), Inches(3))
-            tf_bullets = bullet_box.text_frame
-            tf_bullets.clear()
-            tf_bullets.word_wrap = True
-            tf_bullets.vertical_anchor = MSO_VERTICAL_ANCHOR.TOP
-            bullet_box.text_frame.auto_size = True
+#         if bullet_lines:
+#             bullet_box = slide.shapes.add_textbox(Inches(0.63), Inches(2.25), Inches(7.5), Inches(3))
+#             tf_bullets = bullet_box.text_frame
+#             tf_bullets.clear()
+#             tf_bullets.word_wrap = True
+#             tf_bullets.vertical_anchor = MSO_VERTICAL_ANCHOR.TOP
+#             bullet_box.text_frame.auto_size = True
         
-            # Set margins
-            bullet_box.text_frame.margin_left = Inches(0.098)
-            bullet_box.text_frame.margin_right = Inches(0.098)
-            bullet_box.text_frame.margin_top = Inches(0.051)
+#             # Set margins
+#             bullet_box.text_frame.margin_left = Inches(0.098)
+#             bullet_box.text_frame.margin_right = Inches(0.098)
+#             bullet_box.text_frame.margin_top = Inches(0.051)
         
-            for i, bullet in enumerate(bullet_lines[:5]):
-                p = tf_bullets.paragraphs[0] if i == 0 else tf_bullets.add_paragraph()
-                p.text = bullet
-                p.level = 0
-                p.font.size = Pt(20)
-                p.font.name = 'Calibri'
-                p.alignment = PP_ALIGN.LEFT
+#             for i, bullet in enumerate(bullet_lines[:5]):
+#                 p = tf_bullets.paragraphs[0] if i == 0 else tf_bullets.add_paragraph()
+#                 p.text = bullet
+#                 p.level = 0
+#                 p.font.size = Pt(20)
+#                 p.font.name = 'Calibri'
+#                 p.alignment = PP_ALIGN.LEFT
 
-        slide.notes_slide.notes_text_frame.text = speaker_notes or "(No speaker notes provided.)"
-        notes_out.append(f"Slide {idx + 1} - {title}\n{speaker_notes or '(No speaker notes provided.)'}\n\n")
+#         slide.notes_slide.notes_text_frame.text = speaker_notes or "(No speaker notes provided.)"
+#         notes_out.append(f"Slide {idx + 1} - {title}\n{speaker_notes or '(No speaker notes provided.)'}\n\n")
 
-    return prs, notes_out
+#     return prs, notes_out
 
 def generate_ppt_files(job_role, expertise, core_skill, microskills_text, api_key, progress_callback=None):
     """Generate PPT and notes files from inputs"""
@@ -163,21 +169,42 @@ def generate_ppt_files(job_role, expertise, core_skill, microskills_text, api_ke
             slide_start=slide_count
         )
         
-        markdown, error = query_openai(prompt, api_key)
+        markdown_content, error = query_openai(prompt, api_key)
         if error:
             return None, None, None, error
-        
-        slide_count += markdown.count("# Slide")
-        all_markdown.append(markdown)
+
+        slide_count += markdown_content.count("# Slide")
+        all_markdown.append(markdown_content)
         time.sleep(0.5)  # Rate limiting
 
     full_markdown = "\n\n".join(all_markdown)
-    
+
+    if progress_callback:
+        progress_callback("Adding structure and personalisation...", 0.85)
+    # Convert markdown to HTML
+    html = markdown.markdown(full_markdown, extensions=['tables'])
+
+    # Parse HTML using BeautifulSoup
+    soup = BeautifulSoup(html, "lxml")
+    content_div = soup.body  # The content to pass into PowerPointGenerator
+
     if progress_callback:
         progress_callback("Converting to PowerPoint...", 0.9)
+
+    # Initialize generator with your existing style logic
+    generator = PowerPointGenerator(Config(), logging.getLogger("pptgen"))
+
+    # Generate PowerPoint into a temp path
+    ppt_path = Path(tempfile.mktemp(suffix=".pptx"))
+    success = generator.create_enhanced_presentation(content_div, ppt_path, title=core_skill)
+
+    if not success:
+        return None, None, None, "PowerPoint generation failed."
+
+    prs = Presentation(ppt_path)
+    notes_out = [f"Slide {i}: {n}" for i, n in generator.speaker_notes_txt]
     
-    prs, notes_out = markdown_to_ppt(full_markdown)
-    
+        
     return prs, full_markdown, notes_out, None
 
 # ===== MAIN STREAMLIT APP =====
@@ -239,96 +266,143 @@ def main():
             
             st.error(f"Missing required fields: {', '.join(missing_fields)}")
         
-        # Generate button
+        # Generation options
+        st.markdown("**Select what you want to generate:**")
+        col_gen1, col_gen2 = st.columns(2)
+        with col_gen1:
+            generate_ppt = st.checkbox("Generate PPT", value=True, key="generate_ppt")
+        with col_gen2:
+            generate_qp = st.checkbox("Generate Question Paper", value=False, key="generate_qp")
+
+        # Unified generate button
         generate_btn = st.button(
-            "🚀 Generate PowerPoint",
-            disabled=not is_valid,
+            "🚀 Generate",
+            disabled=not is_valid or (not generate_ppt and not generate_qp),
             use_container_width=True,
             type="primary"
         )
 
     # Generation process
+    # --- Persist generated files in session_state for persistent download buttons ---
+    if 'ppt_buffer' not in st.session_state:
+        st.session_state['ppt_buffer'] = None
+    if 'notes_content' not in st.session_state:
+        st.session_state['notes_content'] = None
+    if 'full_markdown' not in st.session_state:
+        st.session_state['full_markdown'] = None
+    if 'last_core_skill' not in st.session_state:
+        st.session_state['last_core_skill'] = None
+
     if generate_btn and is_valid:
         # Progress tracking
         progress_bar = st.progress(0)
         status_text = st.empty()
-        
+
         def update_progress(message, progress):
             status_text.text(message)
             progress_bar.progress(progress)
-        
+
         try:
-            with st.spinner("🔄 Generating your presentation..."):
-                prs, full_markdown, notes_out, error = generate_ppt_files(
-                    job_role, expertise, core_skill, microskills_text, api_key, update_progress
-                )
-                
-                if error:
-                    st.error(f"❌ Error generating presentation: {error}")
-                    return
-                
-                update_progress("Finalizing files...", 1.0)
-                
-                # Create downloadable files
-                ppt_buffer = io.BytesIO()
-                prs.save(ppt_buffer)
-                ppt_buffer.seek(0)
-                
-                notes_content = ''.join(notes_out)
-                
-                # Success message
-                st.success("✅ Presentation generated successfully!")
-                
-                # Download buttons
-                col1, col2, col3 = st.columns(3)
-                
-                with col1:
-                    st.download_button(
-                        label="📄 Download PowerPoint",
-                        data=ppt_buffer.getvalue(),
-                        file_name=f"{core_skill.replace(' ', '_')}_training.pptx",
-                        mime="application/vnd.openxmlformats-officedocument.presentationml.presentation"
+            if generate_ppt:
+                with st.spinner("🔄 Generating your presentation..."):
+                    prs, full_markdown, notes_out, error = generate_ppt_files(
+                        job_role, expertise, core_skill, microskills_text, api_key, update_progress
                     )
-                
-                with col2:
-                    st.download_button(
-                        label="📝 Download Speaker Notes",
-                        data=notes_content,
-                        file_name=f"{core_skill.replace(' ', '_')}_notes.txt",
-                        mime="text/plain"
-                    )
-                
-                with col3:
-                    st.download_button(
-                        label="📋 Download Markdown",
-                        data=full_markdown,
-                        file_name=f"{core_skill.replace(' ', '_')}_canvas.md",
-                        mime="text/markdown"
-                    )
-                
-                # Clear progress indicators
-                progress_bar.empty()
-                status_text.empty()
-                
-                # Show preview of generated content
-                with st.expander("🔍 Preview Generated Content"):
-                    st.subheader("Generated Slides (Markdown)")
-                    st.code(full_markdown[:2000] + "..." if len(full_markdown) > 2000 else full_markdown, language="markdown")
-                    
-                    st.subheader("Speaker Notes Preview")
-                    st.text(notes_content[:1000] + "..." if len(notes_content) > 1000 else notes_content)
-                
+
+                    if error:
+                        st.error(f"❌ Error generating presentation: {error}")
+                        return
+
+                    update_progress("Finalizing files...", 1.0)
+
+                    # Create downloadable files and store in session_state
+                    ppt_buffer = io.BytesIO()
+                    prs.save(ppt_buffer)
+                    ppt_buffer.seek(0)
+                    notes_content = ''.join(notes_out)
+
+                    st.session_state['ppt_buffer'] = ppt_buffer.getvalue()
+                    st.session_state['notes_content'] = notes_content
+                    st.session_state['full_markdown'] = full_markdown
+                    st.session_state['last_core_skill'] = core_skill
+
+                    # Success message
+                    st.success("✅ Presentation generated successfully!")
+
+                    # Clear progress indicators
+                    progress_bar.empty()
+                    status_text.empty()
+
+            if generate_qp:
+                with st.spinner("📝 Generating your question paper..."):
+                    df, error = generate_question_paper(microskills_text, query_openai, api_key)
+                    if error:
+                        st.error(f"❌ {error}")
+                    else:
+                        st.success("✅ Question paper generated successfully!")
+                        excel_buffer = io.BytesIO()
+                        with pd.ExcelWriter(excel_buffer, engine='xlsxwriter') as writer:
+                            df.to_excel(writer, sheet_name='Questions', index=False)
+                            workbook = writer.book
+                            worksheet = writer.sheets['Questions']
+                            wrap_format = workbook.add_format({'text_wrap': True})
+                            worksheet.set_column('A:Z', 25, wrap_format)
+                        excel_buffer.seek(0)
+            
+                        st.download_button(
+                            label="📥 Download Question Paper (Excel)",
+                            data=excel_buffer,
+                            file_name=f"{core_skill.replace(' ', '_')}_questions.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        )
+            
+                        with st.expander("📋 Preview Question Table"):
+                            st.dataframe(df)
+
+
         except Exception as e:
             st.error(f"❌ An unexpected error occurred: {str(e)}")
             progress_bar.empty()
             status_text.empty()
+
+    # --- Show download buttons if files are available in session_state ---
+    if st.session_state.get('ppt_buffer') and st.session_state.get('notes_content') and st.session_state.get('full_markdown'):
+        col1, col2, col3 = st.columns(3)
+        core_skill_for_file = st.session_state.get('last_core_skill', 'presentation')
+        with col1:
+            st.download_button(
+                label="📄 Download PowerPoint",
+                data=st.session_state['ppt_buffer'],
+                file_name=f"{core_skill_for_file.replace(' ', '_')}_training.pptx",
+                mime="application/vnd.openxmlformats-officedocument.presentationml.presentation"
+            )
+        with col2:
+            st.download_button(
+                label="📝 Download Speaker Notes",
+                data=st.session_state['notes_content'],
+                file_name=f"{core_skill_for_file.replace(' ', '_')}_notes.txt",
+                mime="text/plain"
+            )
+        with col3:
+            st.download_button(
+                label="📋 Download Markdown",
+                data=st.session_state['full_markdown'],
+                file_name=f"{core_skill_for_file.replace(' ', '_')}_canvas.md",
+                mime="text/markdown"
+            )
+
+        # Show preview of generated content
+        with st.expander("🔍 Preview Generated Content"):
+            st.subheader("Generated Slides (Markdown)")
+            st.code(st.session_state['full_markdown'][:2000] + "..." if len(st.session_state['full_markdown']) > 2000 else st.session_state['full_markdown'], language="markdown")
+            st.subheader("Speaker Notes Preview")
+            st.text(st.session_state['notes_content'][:1000] + "..." if len(st.session_state['notes_content']) > 1000 else st.session_state['notes_content'])
 
     # Footer
     st.markdown("---")
     st.markdown(
         """
         <div style='text-align: center; color: #666;'>
-            <p>🤖 Powered by OpenAI GPT-4 | Built with Streamlit</p>
             <p><small>Ensure your API key has sufficient credits for generation</small></p>
         </div>
         """,
