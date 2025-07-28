@@ -16,6 +16,10 @@ import markdown
 import tempfile  
 from question_utils import generate_question_paper  
 import pandas as pd
+from auth import sign_up_user, verify_user, logout
+import ssl
+ssl._create_default_https_context = ssl._create_unverified_context
+
 # ===== PROMPT TEMPLATE =====
 PROMPT_TEMPLATE = """
 Assume the role of an experienced {job_role} responsible for 
@@ -207,8 +211,65 @@ def generate_ppt_files(job_role, expertise, core_skill, microskills_text, api_ke
         
     return prs, full_markdown, notes_out, None
 
+def show_auth_ui():
+    st.markdown("## ")  # vertical spacing
+
+    # Center the full wrapper using columns
+    col1, col2, col3 = st.columns([1, 2.5, 1])
+    with  col2:
+        with st.container():
+            # Open wrapper box
+            
+
+            # --- All form content inside this box ---
+            from pathlib import Path
+            watermark_path = str(Path(__file__).parent / "assets" / "watermark.jpg")
+            st.markdown("<div style='display:flex; justify-content:center; align-items:center; margin-bottom:10px;'>", unsafe_allow_html=True)
+            st.image(watermark_path, width=180)
+            st.markdown("</div>", unsafe_allow_html=True)
+            st.markdown("<h2 style='text-align:center; color:#2b7cff; margin-bottom:0;'>Training PPT Generator</h2>", unsafe_allow_html=True)
+            st.markdown("<p style='text-align:center; font-size:18px; color:#2b7cff;'>Please log in or register</p>", unsafe_allow_html=True)
+
+            mode = st.radio("Choose Action", ["Login", "Sign Up"], horizontal=True)
+
+            username = st.text_input("Username")
+            password = st.text_input("Password", type="password")
+
+            if mode == "Sign Up":
+                email = st.text_input("Email")
+                if st.button("Register"):
+                    success, msg = sign_up_user(username, email, password)
+                    if success:
+                        st.success("Registration successful")
+                    else:
+                        st.error(msg)
+
+
+            elif mode == "Login":
+                if st.button("Login"):
+                    user = verify_user(username, password)
+                    if user:
+                        st.session_state["user"] = user["username"]
+                        st.success(f"Welcome, {user['username']}!")
+                        st.rerun()
+                    else:
+                        st.error("Invalid credentials")
+
+            # Close the wrapper
+            st.markdown("</div>", unsafe_allow_html=True)
+
+
+
 # ===== MAIN STREAMLIT APP =====
 def main():
+    if "user" not in st.session_state:
+        show_auth_ui()
+        st.stop()
+    else:
+        st.sidebar.success(f"Logged in as: {st.session_state['user']}")
+        if st.sidebar.button("Logout"):
+            logout()
+
     st.title("📊 Training PowerPoint Generator")
     st.markdown("Generate professional training presentations using AI")
 
@@ -275,17 +336,7 @@ def main():
         
         # Validation
         is_valid = all([api_key, job_role, expertise, core_skill, microskills_text])
-        
-        if not is_valid:
-            missing_fields = []
-            if not api_key: missing_fields.append("API Key")
-            if not job_role: missing_fields.append("Job Role")
-            if not expertise: missing_fields.append("Expertise")
-            if not core_skill: missing_fields.append("Core Skill")
-            if not microskills_text: missing_fields.append("Micro-Skills")
-            
-            st.error(f"Missing required fields: {', '.join(missing_fields)}")
-        
+
         # Generation options
         st.markdown("**Select what you want to generate:**")
         col_gen1, col_gen2 = st.columns(2)
@@ -302,6 +353,16 @@ def main():
             type="primary"
         )
 
+        # Show missing fields error ONLY after clicking Generate
+        if generate_btn and not is_valid:
+            missing_fields = []
+            if not api_key: missing_fields.append("API Key")
+            if not job_role: missing_fields.append("Job Role")
+            if not expertise: missing_fields.append("Expertise")
+            if not core_skill: missing_fields.append("Core Skill")
+            if not microskills_text: missing_fields.append("Micro-Skills")
+            st.error(f"Missing required fields: {', '.join(missing_fields)}")
+
     # Generation process
     # --- Persist generated files in session_state for persistent download buttons ---
     if 'ppt_buffer' not in st.session_state:
@@ -312,6 +373,8 @@ def main():
         st.session_state['full_markdown'] = None
     if 'last_core_skill' not in st.session_state:
         st.session_state['last_core_skill'] = None
+    if 'question_excel_buffer' not in st.session_state:
+        st.session_state['question_excel_buffer'] = None
 
     if generate_btn and is_valid:
         # Progress tracking
@@ -358,6 +421,7 @@ def main():
                     df, error = generate_question_paper(microskills_text, query_openai, api_key)
                     if error:
                         st.error(f"❌ {error}")
+                        st.session_state['question_excel_buffer'] = None
                     else:
                         st.success("✅ Question paper generated successfully!")
                         excel_buffer = io.BytesIO()
@@ -368,14 +432,8 @@ def main():
                             wrap_format = workbook.add_format({'text_wrap': True})
                             worksheet.set_column('A:Z', 25, wrap_format)
                         excel_buffer.seek(0)
-            
-                        st.download_button(
-                            label="📥 Download Question Paper (Excel)",
-                            data=excel_buffer,
-                            file_name=f"{core_skill.replace(' ', '_')}_questions.xlsx",
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                        )
-            
+                        st.session_state['question_excel_buffer'] = excel_buffer.getvalue()
+                        st.session_state['last_core_skill'] = core_skill
                         with st.expander("📋 Preview Question Table"):
                             st.dataframe(df)
 
@@ -385,38 +443,56 @@ def main():
             progress_bar.empty()
             status_text.empty()
 
-    # --- Show download buttons if files are available in session_state ---
-    if st.session_state.get('ppt_buffer') and st.session_state.get('notes_content') and st.session_state.get('full_markdown'):
-        col1, col2, col3 = st.columns(3)
-        core_skill_for_file = st.session_state.get('last_core_skill', 'presentation')
-        with col1:
-            st.download_button(
-                label="📄 Download PowerPoint",
-                data=st.session_state['ppt_buffer'],
-                file_name=f"{core_skill_for_file.replace(' ', '_')}_training.pptx",
-                mime="application/vnd.openxmlformats-officedocument.presentationml.presentation"
-            )
-        with col2:
-            st.download_button(
-                label="📝 Download Speaker Notes",
-                data=st.session_state['notes_content'],
-                file_name=f"{core_skill_for_file.replace(' ', '_')}_notes.txt",
-                mime="text/plain"
-            )
-        with col3:
-            st.download_button(
-                label="📋 Download Markdown",
-                data=st.session_state['full_markdown'],
-                file_name=f"{core_skill_for_file.replace(' ', '_')}_canvas.md",
-                mime="text/markdown"
-            )
 
-        # Show preview of generated content
-        with st.expander("🔍 Preview Generated Content"):
-            st.subheader("Generated Slides (Markdown)")
-            st.code(st.session_state['full_markdown'][:2000] + "..." if len(st.session_state['full_markdown']) > 2000 else st.session_state['full_markdown'], language="markdown")
-            st.subheader("Speaker Notes Preview")
-            st.text(st.session_state['notes_content'][:1000] + "..." if len(st.session_state['notes_content']) > 1000 else st.session_state['notes_content'])
+    # --- Show download buttons if files are available in session_state ---
+    any_download = (
+        st.session_state.get('ppt_buffer') and st.session_state.get('notes_content') and st.session_state.get('full_markdown')
+    ) or st.session_state.get('question_excel_buffer')
+    if any_download:
+        cols = st.columns(4)
+        core_skill_for_file = st.session_state.get('last_core_skill', 'presentation')
+        col_idx = 0
+        if st.session_state.get('ppt_buffer') and st.session_state.get('notes_content') and st.session_state.get('full_markdown'):
+            with cols[col_idx]:
+                st.download_button(
+                    label="📄 Download PowerPoint",
+                    data=st.session_state['ppt_buffer'],
+                    file_name=f"{core_skill_for_file.replace(' ', '_')}_training.pptx",
+                    mime="application/vnd.openxmlformats-officedocument.presentationml.presentation"
+                )
+            col_idx += 1
+            with cols[col_idx]:
+                st.download_button(
+                    label="📝 Download Speaker Notes",
+                    data=st.session_state['notes_content'],
+                    file_name=f"{core_skill_for_file.replace(' ', '_')}_notes.txt",
+                    mime="text/plain"
+                )
+            col_idx += 1
+            with cols[col_idx]:
+                st.download_button(
+                    label="📋 Download Markdown",
+                    data=st.session_state['full_markdown'],
+                    file_name=f"{core_skill_for_file.replace(' ', '_')}_canvas.md",
+                    mime="text/markdown"
+                )
+            col_idx += 1
+        if st.session_state.get('question_excel_buffer'):
+            with cols[col_idx]:
+                st.download_button(
+                    label="📥 Download Question Paper (Excel)",
+                    data=st.session_state['question_excel_buffer'],
+                    file_name=f"{core_skill_for_file.replace(' ', '_')}_questions.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
+
+        # Show preview of generated content (if available)
+        if st.session_state.get('full_markdown'):
+            with st.expander("🔍 Preview Generated Content"):
+                st.subheader("Generated Slides (Markdown)")
+                st.code(st.session_state['full_markdown'][:2000] + "..." if len(st.session_state['full_markdown']) > 2000 else st.session_state['full_markdown'], language="markdown")
+                st.subheader("Speaker Notes Preview")
+                st.text(st.session_state['notes_content'][:1000] + "..." if len(st.session_state['notes_content']) > 1000 else st.session_state['notes_content'])
 
     # Footer
     st.markdown("---")

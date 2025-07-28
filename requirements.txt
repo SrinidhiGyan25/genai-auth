@@ -7,3 +7,7 @@ lxml
 python-docx
 beautifulsoup4
 markdown
+bcrypt
+pymongo
+python-dotenv
+xlsxwriter
