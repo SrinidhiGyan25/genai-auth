@@ -8,6 +8,6 @@ python-docx
 beautifulsoup4
 markdown
 bcrypt
-pymongo
+pymongo==4.7.2
 python-dotenv
 xlsxwriter
